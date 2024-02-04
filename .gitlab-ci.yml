@@ -1,0 +1,63 @@
+image: clemodd/openjdk18_debian:v2.0
+
+stages:
+  - build-serveur
+  - test
+  - telechargement
+  - deploy
+ 
+build-job:
+  stage: build-serveur
+  script:
+    - chmod +x ./gradlew
+    - echo "Génération du .jar"
+    - ./gradlew shadowJar
+    - echo "Fin de la génération du .jar"
+  artifacts:
+    paths:
+      - server/build/libs/
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "production"'
+      changes:
+        - server/**/*
+
+unit-test-job:
+  stage: test
+  script:
+    - chmod +x ./gradlew
+    - echo "Lancement des tests"
+    - ./gradlew test
+    - ./gradlew koverLog
+
+telechargement:
+  stage: telechargement
+  script:
+    - apt-get update && apt-get install -y curl jq sshpass
+    - echo "Téléchargement du .jar sur le serveur"
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "production" ]; then
+        JOB_ID=$(curl --header "PRIVATE-TOKEN: $PRIVATE_TOKEN_GITLAB" "$URL/api/v4/projects/1/jobs?scope=success&order_by=created_at&sort=desc" | jq '[.[] | select(.name == "build-job" and .ref == "production")][0].id') && curl --header "PRIVATE-TOKEN: $PRIVATE_TOKEN_GITLAB" "$URL/api/v4/jobs/$JOB_ID/artifacts?artifact_format=zip&artifact_type=archive" -o artifacts.zip
+        sshpass -p $MDP_SERVER_POUR_GITLAB_USER scp -P $PORT_PROD_SSH -o StrictHostKeyChecking=no artifacts.zip gitlab@$URL_SERVEUR:~ && sshpass -p $MDP_SERVER_POUR_GITLAB_USER ssh -p $PORT_PROD_SSH -o StrictHostKeyChecking=no gitlab@$URL_SERVEUR "unzip -o ~/artifacts.zip -d ~/unzipped && mv ~/unzipped/server/build/libs/server-all.jar /home/gitlab/build && rm -f ~/artifacts.zip && rm -rf ~/unzipped"
+      elif [ "$CI_COMMIT_BRANCH" = "develop" ]; then
+        JOB_ID=$(curl --header "PRIVATE-TOKEN: $PRIVATE_TOKEN_GITLAB" "$URL/api/v4/projects/1/jobs?scope=success&order_by=created_at&sort=desc" | jq '[.[] | select(.name == "build-job" and .ref == "develop")][0].id') && curl --header "PRIVATE-TOKEN: $PRIVATE_TOKEN_GITLAB" "$URL/api/v4/jobs/$JOB_ID/artifacts?artifact_format=zip&artifact_type=archive" -o artifacts.zip
+        sshpass -p $MDP_SERVER_POUR_GITLAB_USER scp -P $PORT_DEV_SSH -o StrictHostKeyChecking=no artifacts.zip gitlab@$URL_SERVEUR:~ && sshpass -p $MDP_SERVER_POUR_GITLAB_USER ssh -p $PORT_DEV_SSH -o StrictHostKeyChecking=no gitlab@$URL_SERVEUR "unzip -o ~/artifacts.zip -d ~/unzipped && mv ~/unzipped/server/build/libs/server-all.jar /home/gitlab/build && rm -f ~/artifacts.zip && rm -rf ~/unzipped"
+      fi
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "production"'
+      changes:
+        - server/**/*
+
+build-docker-image:
+  stage: deploy
+  script:
+    - apt-get update -y && apt-get install -y sshpass
+    - |
+      if [ "$CI_COMMIT_BRANCH" = "production" ]; then
+        sshpass -p $MDP_SERVER_POUR_GITLAB_USER ssh -oPort=$PORT_PROD_SSH -oStrictHostKeyChecking=no gitlab@$URL_SERVEUR <<< $'screen -S serveur -X quit || true; cd /home/gitlab/build && screen -L -dm -S serveur java -jar server-all.jar'
+      elif [ "$CI_COMMIT_BRANCH" = "develop" ]; then
+        sshpass -p $MDP_SERVER_POUR_GITLAB_USER ssh -oPort=$PORT_DEV_SSH -oStrictHostKeyChecking=no gitlab@$URL_SERVEUR <<< $'screen -S serveur -X quit || true; cd /home/gitlab/build && screen -L -dm -S serveur java -jar server-all.jar'
+      fi
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "production"'
+      changes:
+        - server/**/*

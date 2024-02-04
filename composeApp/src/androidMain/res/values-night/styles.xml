@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="LaunchTheme.MTG_Life.Starting" parent="LaunchTheme.MTG_Life.Starting.Dark" />
+
+    <style name="LaunchTheme.MTG_Life.Starting.Dark" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">#32264c</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/logo_mtg_life_sombre_padding</item>
+        <item name="android:actionBarStyle">@null</item>
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>
